@@ -1,12 +1,11 @@
+import os
 from telegram import Update
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler, MessageHandler, filters
 import google.generativeai as genai
 
-# لێرەدا تۆکێنەکەی تێلیگرامەکەت دابنێ
-TOKEN = ''
-
-# لێرەدا API Keyـەکەی جیمینای دابنێ
-genai.configure(api_key='')
+# بەکارهێنانی ژینگەی Render بۆ پاراستنی نهێنییەکان
+TOKEN = os.getenv('TELEGRAM_TOKEN')
+genai.configure(api_key=os.getenv('GEMINI_API_KEY'))
 
 model = genai.GenerativeModel('gemini-1.5-flash')
 
