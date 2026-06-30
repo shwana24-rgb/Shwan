@@ -1,2 +1,0 @@
-# Shwan
-Parchisi
