@@ -1,15 +1,13 @@
 import os
 import logging
+import requests
 from flask import Flask, request
-import google.generativeai as genai
-from telegram import Update, Bot
-from telegram.ext import ApplicationBuilder, MessageHandler, CommandHandler, filters, ContextTypes
 
 logging.basicConfig(level=logging.INFO)
 
 TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-WEBHOOK_URL = os.getenv("WEBHOOK_URL")  # https://shwan.onrender.com
+WEBHOOK_URL = os.getenv("WEBHOOK_URL")
 PORT = int(os.getenv("PORT", "10000"))
 
 if not TELEGRAM_TOKEN:
@@ -19,49 +17,77 @@ if not GEMINI_API_KEY:
 if not WEBHOOK_URL:
     raise RuntimeError("WEBHOOK_URL missing")
 
-genai.configure(api_key=GEMINI_API_KEY)
-model = genai.GenerativeModel("gemini-1.5-flash")
+app = Flask(__name__)
 
-flask_app = Flask(__name__)
-telegram_app = ApplicationBuilder().token(TELEGRAM_TOKEN).build()
-
-
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("سڵاو! من ئامادەم.")
+TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
+GEMINI_URL = (
+    "https://generativelanguage.googleapis.com/v1beta/"
+    f"models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+)
 
 
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        response = model.generate_content(update.message.text)
-        await update.message.reply_text(response.text or "ببورە، وەڵامم نەبوو.")
-    except Exception:
-        logging.exception("Gemini error")
-        await update.message.reply_text("هەڵە ڕوویدا. دوبارە هەوڵ بدە.")
+def send_message(chat_id, text):
+    url = f"{TELEGRAM_API}/sendMessage"
+    requests.post(url, json={"chat_id": chat_id, "text": text}, timeout=20)
 
 
-telegram_app.add_handler(CommandHandler("start", start))
-telegram_app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+def ask_gemini(user_text):
+    payload = {
+        "contents": [
+            {
+                "parts": [
+                    {"text": user_text}
+                ]
+            }
+        ]
+    }
+
+    r = requests.post(GEMINI_URL, json=payload, timeout=40)
+    if r.status_code != 200:
+        logging.error("Gemini error: %s", r.text)
+        return "هەڵەی Gemini ڕوویدا. API KEY یان model بپشکنە."
+
+    data = r.json()
+    return data["candidates"][0]["content"]["parts"][0]["text"]
 
 
-@flask_app.route("/")
+@app.route("/")
 def home():
     return "Bot is alive!"
 
 
-@flask_app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
-async def webhook():
-    update = Update.de_json(request.get_json(force=True), telegram_app.bot)
-    await telegram_app.initialize()
-    await telegram_app.process_update(update)
+@app.route(f"/{TELEGRAM_TOKEN}", methods=["POST"])
+def telegram_webhook():
+    update = request.get_json(force=True)
+
+    message = update.get("message")
+    if not message:
+        return "ok"
+
+    chat_id = message["chat"]["id"]
+    user_text = message.get("text", "")
+
+    if user_text == "/start":
+        send_message(chat_id, "سڵاو! من ئامادەم.")
+        return "ok"
+
+    if not user_text:
+        send_message(chat_id, "تکایە نامەی نووسراو بنێرە.")
+        return "ok"
+
+    answer = ask_gemini(user_text)
+    send_message(chat_id, answer)
+
     return "ok"
 
 
-@flask_app.before_request
-async def setup_webhook_once():
-    if not getattr(flask_app, "webhook_set", False):
-        await telegram_app.bot.set_webhook(f"{WEBHOOK_URL}/{TELEGRAM_TOKEN}")
-        flask_app.webhook_set = True
+def set_webhook():
+    webhook = f"{WEBHOOK_URL}/{TELEGRAM_TOKEN}"
+    url = f"{TELEGRAM_API}/setWebhook"
+    r = requests.post(url, json={"url": webhook}, timeout=20)
+    logging.info("Webhook result: %s", r.text)
 
 
 if __name__ == "__main__":
-    flask_app.run(host="0.0.0.0", port=PORT)
+    set_webhook()
+    app.run(host="0.0.0.0", port=PORT)
