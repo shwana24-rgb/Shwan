@@ -22,7 +22,8 @@ app = Flask(__name__)
 TELEGRAM_API = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}"
 GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/"
-    f"models/gemini-2.5-flash:generateContent?key={GEMINI_API_KEY}"
+    f"models/gemini-2.5-flash-lite:generateContent?key={GEMINI_API_KEY}"
+)
 ))
 
 
