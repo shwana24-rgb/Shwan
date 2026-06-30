@@ -1,35 +1,39 @@
 import os
-import logging
-from telegram import Update
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+import threading
+from http.server import BaseHTTPRequestHandler, HTTPServer
+from telegram.ext import ApplicationBuilder, MessageHandler, filters
 import google.generativeai as genai
 
-# ڕێکخستنی ژینگە
-TOKEN = os.getenv('TELEGRAM_TOKEN')
-API_KEY = os.getenv('GEMINI_API_KEY')
-PORT = int(os.environ.get('PORT', '8080'))
+# --- دروستکردنی سێرڤەرێکی بچووک بۆ ڕازیکردنی ڕێندەر ---
+class DummyServer(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.end_headers()
+        self.wfile.write(b"Bot is alive and running!")
 
-genai.configure(api_key=API_KEY)
+def run_dummy_server():
+    # ڕێندەر خۆی پۆرتێک دیاری دەکات لە ڕێگەی ژینگەکەیەوە (PORT)
+    port = int(os.environ.get("PORT", 8080))
+    server = HTTPServer(("0.0.0.0", port), DummyServer)
+    server.serve_forever()
+# --------------------------------------------------
+
+# لێرە کلیلەکەی جیمینای دابنێ
+genai.configure(api_key='لێرە_API_KEY_دابنێ')
 model = genai.GenerativeModel('gemini-1.5-flash')
 
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    await update.message.reply_text("سڵاو! من ئامادەم بۆ یارمەتیدانت.")
-
-async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def handle_message(update, context):
     user_text = update.message.text
     response = model.generate_content(user_text)
     await update.message.reply_text(response.text)
 
 if __name__ == '__main__':
-    application = ApplicationBuilder().token(TOKEN).build()
+    # ١. دەستپێکردنی سێرڤەرە بچووکەکە لە Threadێکی جیاوازدا پێش بۆتەکە
+    threading.Thread(target=run_dummy_server, daemon=True).start()
+
+    # ٢. دەستپێکردنی بۆتی تێلیگرام بە شێوازی ئاسایی Polling (پێویست بە Webhook ناکات)
+    app = ApplicationBuilder().token('لێرە_تۆکێن_دابنێ').build()
+    app.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
     
-    application.add_handler(CommandHandler('start', start))
-    application.add_handler(MessageHandler(filters.TEXT & (~filters.COMMAND), handle_message))
-    
-    # بەکارهێنانی Webhook بۆ ئەوەی Render بۆتەکەت نەکوژێنێتەوە
-    application.run_webhook(
-        listen="0.0.0.0",
-        port=PORT,
-        url_path=TOKEN,
-        webhook_url="https://shwan.onrender.com/" + TOKEN
-    )
+    print("Starting bot polling...")
+    app.run_polling()
